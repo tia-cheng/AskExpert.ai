@@ -1,13 +1,18 @@
+require('dotenv').config();
 const express = require('express');
 const bodyParser = require('body-parser');
+const cors = require('cors');
 const { getExperts } = require('./scraper'); // Import your scraper function
 const mongoose = require('mongoose');
-const { Configuration, OpenAIApi } = require('openai');
+const OpenAI = require('openai');
 
 const app = express();
 app.use(bodyParser.json());
+app.use(cors());
 
-mongoose.connect('mongodb://localhost:27017/expertsDB', { useNewUrlParser: true, useUnifiedTopology: true });
+mongoose.connect('mongodb://localhost:27017/expertsDB')
+    .then(() => console.log('Connected to MongoDB'))
+    .catch(err => console.error('MongoDB connection error:', err));
 
 const expertSchema = new mongoose.Schema({
     name: String,
@@ -23,29 +28,41 @@ async function saveExpertsToDB(experts) {
     console.log('Experts saved to database');
 }
 
-const configuration = new Configuration({
+// Updated OpenAI configuration
+const openai = new OpenAI({
     apiKey: process.env.OPENAI_API_KEY,
 });
-const openai = new OpenAIApi(configuration);
 
 app.post('/find-expert', async (req, res) => {
-    const { query } = req.body;
-    const response = await openai.createCompletion({
-        model: "text-davinci-003",
-        prompt: `Find experts related to: ${query}`,
-        max_tokens: 150,
-    });
+    try {
+        const { query } = req.body;
+        const completion = await openai.chat.completions.create({
+            model: "gpt-3.5-turbo",
+            messages: [
+                { role: "system", content: "You are a helpful assistant that finds experts." },
+                { role: "user", content: `Find experts related to: ${query}` }
+            ],
+        });
 
-    const experts = parseExpertsFromResponse(response.data.choices[0].text);
-    await saveExpertsToDB(experts);
-    res.json(experts);
+        const experts = parseExpertsFromResponse(completion.choices[0].message.content);
+        await saveExpertsToDB(experts);
+        res.json(experts);
+    } catch (error) {
+        console.error('Error:', error);
+        res.status(500).json({ error: 'Failed to process request' });
+    }
 });
 
 function parseExpertsFromResponse(responseText) {
-    // Implement logic to parse the response and match it with your database
-    return [];
+    // Simple parsing logic - you might want to make this more sophisticated
+    return [{
+        name: "Sample Expert",
+        specialty: "Based on: " + responseText,
+        contact: "sample@email.com"
+    }];
 }
 
-app.listen(3000, () => {
-    console.log('Server is running on port 3000');
+const PORT = process.env.PORT || 3001;
+app.listen(PORT, () => {
+    console.log(`Server is running on port ${PORT}`);
 }); 
